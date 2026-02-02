@@ -1,10 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/google/uuid"
 )
 
@@ -15,6 +22,24 @@ type CreateRequestInput struct {
 type CreateRequestOutput struct {
 	RequestID string `json:"requestId"`
 	Title     string `json:"title"`
+}
+
+func newDynamoClient(ctx context.Context) (*dynamodb.Client, error) {
+	endpoint := os.Getenv("DYNAMODB_ENDPOINT")
+	if endpoint == "" {
+		return nil, fmt.Errorf("DYNAMODB_ENDPOINT is required")
+	}
+
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(os.Getenv("AWS_REGION")),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	}), nil
 }
 
 func main() {
@@ -30,6 +55,11 @@ func main() {
 	})
 
 	mux.HandleFunc("/requests", func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.Background()
+		ddb, err := newDynamoClient(ctx)
+		if err != nil {
+			log.Fatal(err)
+		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -50,6 +80,19 @@ func main() {
 		out := CreateRequestOutput{
 			RequestID: uuid.NewString(),
 			Title:     in.Title,
+		}
+		pk := "REQ#" + out.RequestID
+		_, err = ddb.PutItem(ctx, &dynamodb.PutItemInput{
+			TableName: aws.String("Requests"),
+			Item: map[string]types.AttributeValue{
+				"PK":     &types.AttributeValueMemberS{Value: pk},
+				"title":  &types.AttributeValueMemberS{Value: out.Title},
+				"status": &types.AttributeValueMemberS{Value: "PENDING"},
+			},
+		})
+		if err != nil {
+			http.Error(w, "failed to persist request", http.StatusInternalServerError)
+			return
 		}
 		if err := json.NewEncoder(w).Encode(out); err != nil {
 			http.Error(w, "failed to write response", http.StatusInternalServerError)
