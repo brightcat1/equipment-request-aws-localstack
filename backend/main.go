@@ -11,6 +11,11 @@ type CreateRequestInput struct {
 	Title string `json:"title"`
 }
 
+type CreateRequestOutput struct {
+	RequestID string `json:"requestId"`
+	Title     string `json:"title"`
+}
+
 func main() {
 	mux := http.NewServeMux()
 
@@ -40,10 +45,15 @@ func main() {
 		}
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"requestId": "R-1",
-			"title":     in.Title,
-		})
+
+		out := CreateRequestOutput{
+			RequestID: "R-1",
+			Title:     in.Title,
+		}
+		if err := json.NewEncoder(w).Encode(out); err != nil {
+			http.Error(w, "failed to write response", http.StatusInternalServerError)
+			return
+		}
 	})
 
 	addr := ":8080"
