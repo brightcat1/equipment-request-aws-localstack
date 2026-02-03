@@ -43,6 +43,11 @@ func newDynamoClient(ctx context.Context) (*dynamodb.Client, error) {
 }
 
 func main() {
+	ctx := context.Background()
+	ddb, err := newDynamoClient(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -55,11 +60,6 @@ func main() {
 	})
 
 	mux.HandleFunc("/requests", func(w http.ResponseWriter, r *http.Request) {
-		ctx := context.Background()
-		ddb, err := newDynamoClient(ctx)
-		if err != nil {
-			log.Fatal(err)
-		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -82,7 +82,8 @@ func main() {
 			Title:     in.Title,
 		}
 		pk := "REQ#" + out.RequestID
-		_, err = ddb.PutItem(ctx, &dynamodb.PutItemInput{
+		reqCtx := r.Context()
+		_, err = ddb.PutItem(reqCtx, &dynamodb.PutItemInput{
 			TableName: aws.String("Requests"),
 			Item: map[string]types.AttributeValue{
 				"PK":     &types.AttributeValueMemberS{Value: pk},
